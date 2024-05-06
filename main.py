@@ -8,6 +8,9 @@ from crack import Crack
 import uuid
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
+from flask import Flask, request, jsonify
+
+app = Flask(__name__)
 
 
 def auth():
@@ -37,7 +40,7 @@ def auth():
         return json.loads(resp)["params"]["bussiness"]
 
 
-def getImage():
+def getImage(token):
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
         "Referer": "https://beian.miit.gov.cn/",
@@ -75,7 +78,7 @@ def aes_ecb_encrypt(plaintext: bytes, key: bytes, block_size=16):
     return base64.b64encode(ciphertext).decode('utf-8')
 
 
-def generate_pointjson(big_img, small_img, secretKey):
+def generate_pointjson(big_img, small_img, secretKey,crack):
     boxes = crack.detect(big_img)
     if boxes:
         print("文字检测成功")
@@ -91,7 +94,7 @@ def generate_pointjson(big_img, small_img, secretKey):
     return enc_pointJson
 
 
-def checkImage(uuid_token, secretKey, clientUid, pointJson):
+def checkImage(uuid_token, secretKey, clientUid, pointJson, token):
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
         "Referer": "https://beian.miit.gov.cn/",
@@ -116,7 +119,7 @@ def checkImage(uuid_token, secretKey, clientUid, pointJson):
     return False
 
 
-def query(sign, uuid_token, domain):
+def query(sign, uuid_token, domain, token):
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
         "Referer": "https://beian.miit.gov.cn/",
@@ -137,16 +140,25 @@ def query(sign, uuid_token, domain):
     return resp
 
 
-crack = Crack()
-token = auth()
-time.sleep(0.1)
-print("正在获取验证码")
-params, clientUid = getImage()
-pointjson = generate_pointjson(params["bigImage"], params["smallImage"], params["secretKey"])
-time.sleep(0.5)
-sign = checkImage(params["uuid"], params["secretKey"], clientUid, pointjson)
-time.sleep(0.5)
-if sign:
-    print(query(sign, params["uuid"],"baidu.com"))
-else:
-    print("failed")
+@app.route('/verify', methods=['GET'])
+def verify():
+    domain = request.args.get('domain', 'baidu.com') # 默认值为 baidu.com
+    # 以下为你的逻辑
+    crack = Crack()
+    token = auth()
+    time.sleep(0.1)
+    print("正在获取验证码")
+
+    params, clientUid = getImage(token)
+    pointjson = generate_pointjson(params["bigImage"], params["smallImage"], params["secretKey"], crack)
+    time.sleep(0.5)
+    sign = checkImage(params["uuid"], params["secretKey"], clientUid, pointjson, token)
+    time.sleep(0.5)
+    if sign:
+        result = query(sign, params["uuid"], domain, token)
+    else:
+        result = "failed"
+    return jsonify(result)
+
+if __name__ == '__main__':
+    app.run(debug=True)
